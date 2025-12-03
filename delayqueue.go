@@ -19,6 +19,7 @@ type DelayQueue struct {
 	name               string
 	redisCli           RedisCli
 	cb                 func(string) bool
+	msgKeyPrefix       string // string
 	pendingKey         string // sorted set: message id -> delivery time
 	readyKey           string // list
 	unAckKey           string // sorted set: message id -> retry time
@@ -135,11 +136,12 @@ func NewQueue0(name string, cli RedisCli, opts ...interface{}) *DelayQueue {
 	keyPrefix := prefix + ":" + name
 	if useHashTag {
 		keyPrefix = "{" + keyPrefix + "}"
-	} 
+	}
 	return &DelayQueue{
 		name:               name,
 		redisCli:           cli,
 		cb:                 callback,
+		msgKeyPrefix:       keyPrefix + ":msg:",
 		pendingKey:         keyPrefix + ":pending",
 		readyKey:           keyPrefix + ":ready",
 		unAckKey:           keyPrefix + ":unack",
@@ -223,10 +225,7 @@ func (q *DelayQueue) WithNackRedeliveryDelay(d time.Duration) *DelayQueue {
 }
 
 func (q *DelayQueue) genMsgKey(idStr string) string {
-	if q.useHashTag {
-		return "{dp:" + q.name + "}" + ":msg:" + idStr
-	}
-	return "dp:" + q.name + ":msg:" + idStr
+	return q.msgKeyPrefix + idStr
 }
 
 type retryCountOpt int
@@ -363,6 +362,11 @@ func (q *DelayQueue) TryIntercept(msg *MessageInfo) (*InterceptResult, error) {
 		Intercepted: false,
 		State:       StateUnknown,
 	}, nil
+}
+
+// TryInterceptByID trys to intercept a message, wrap TryIntercept
+func (q *DelayQueue) TryInterceptByID(msgid string) (*InterceptResult, error) {
+	return q.TryIntercept(&MessageInfo{id: msgid})
 }
 
 func (q *DelayQueue) loadScript(script string) (string, error) {
