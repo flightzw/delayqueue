@@ -5,8 +5,9 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/hdt3213/delayqueue"
 	"github.com/redis/go-redis/v9"
+
+	"github.com/flightzw/delayqueue"
 )
 
 type Metrics struct {
@@ -64,7 +65,7 @@ func main() {
 	tick := time.Tick(time.Minute)
 	go func() {
 		for range tick {
-			minutes := len(listener.List)-1
+			minutes := len(listener.List) - 1
 			fmt.Printf("%d: %#v", minutes, listener.List[minutes])
 		}
 	}()
