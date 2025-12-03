@@ -1,4 +1,4 @@
-module github.com/hdt3213/delayqueue
+module github.com/flightzw/delayqueue
 
 go 1.16
 
