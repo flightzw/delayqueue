@@ -48,14 +48,21 @@ func main() {
 	redisCli := redis.NewClient(&redis.Options{
 		Addr: "127.0.0.1:6379",
 	})
-	queue := delayqueue.NewQueue("example", redisCli, func(payload string) bool {
+	queue, err := delayqueue.NewQueue("example", redisCli)
+	if err != nil {
+		panic(err)
+	}
+	start := time.Now()
+	queue.RegisterCallback(func(payload string) bool {
 		return true
 	})
-	start := time.Now()
 	queue.EnableReport()
 
 	// setup monitor
-	monitor := delayqueue.NewMonitor("example", redisCli)
+	monitor, err := delayqueue.NewMonitor("example", redisCli)
+	if err != nil {
+		panic(err)
+	}
 	listener := &MyProfiler{
 		Start: start.Unix(),
 	}

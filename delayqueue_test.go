@@ -13,28 +13,39 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+var redisOptions = &redis.Options{
+	Addr:     "127.0.0.1:6379",
+	Password: "123456",
+}
+
 func TestDelayQueue_consume(t *testing.T) {
-	redisCli := redis.NewClient(&redis.Options{
-		Addr: "127.0.0.1:6379",
-	})
+	redisCli := redis.NewClient(redisOptions)
 	redisCli.FlushDB(context.Background())
 	size := 1000
 	retryCount := 3
 	deliveryCount := make(map[string]int)
-	cb := func(s string) bool {
+
+	opts := []QueueOption{
+		WithHashTagKey(),
+		WithFetchInterval(50 * time.Millisecond),
+		WithMaxConsumeDuration(0),
+		WithLogger(log.New(os.Stderr, "[DelayQueue]", log.LstdFlags)),
+		WithFetchLimit(2),
+	}
+	queue, err := NewQueue("test", redisCli, opts...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	queue.RegisterCallback(func(s string) bool {
 		deliveryCount[s]++
 		i, _ := strconv.ParseInt(s, 10, 64)
 		return i%2 == 0
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
-	queue := NewQueue("test", redisCli, UseHashTagKey()).
-		WithCallback(cb).
-		WithFetchInterval(time.Millisecond * 50).
-		WithMaxConsumeDuration(0).
-		WithLogger(log.New(os.Stderr, "[DelayQueue]", log.LstdFlags)).
-		WithFetchLimit(2)
-
 	for i := 0; i < size; i++ {
-		err := queue.SendDelayMsg(strconv.Itoa(i), 0, WithRetryCount(retryCount), WithMsgTTL(time.Hour))
+		err := queue.SendDelayMsg(strconv.Itoa(i), 0, WithRetryCount(uint(retryCount)), WithMsgTTL(time.Hour))
 		if err != nil {
 			t.Error(err)
 		}
@@ -75,16 +86,20 @@ func TestDelayQueueOnCluster(t *testing.T) {
 	redisCli.FlushDB(context.Background())
 	size := 1000
 	succeed := 0
-	cb := func(s string) bool {
+	queue, err := NewQueueOnCluster("test", redisCli,
+		WithFetchInterval(time.Millisecond*50),
+		WithMaxConsumeDuration(0),
+		WithLogger(log.New(os.Stderr, "[DelayQueue]", log.LstdFlags)),
+		WithFetchLimit(2),
+		WithConcurrent(1),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	queue.RegisterCallback(func(s string) bool {
 		succeed++
 		return true
-	}
-	queue := NewQueueOnCluster("test", redisCli, cb).
-		WithFetchInterval(time.Millisecond * 50).
-		WithMaxConsumeDuration(0).
-		WithLogger(log.New(os.Stderr, "[DelayQueue]", log.LstdFlags)).
-		WithFetchLimit(2).
-		WithConcurrent(1)
+	})
 
 	for i := 0; i < size; i++ {
 		err := queue.SendDelayMsg(strconv.Itoa(i), 0)
@@ -110,29 +125,31 @@ func TestDelayQueueOnCluster(t *testing.T) {
 }
 
 func TestDelayQueue_ConcurrentConsume(t *testing.T) {
-	redisCli := redis.NewClient(&redis.Options{
-		Addr: "127.0.0.1:6379",
-	})
+	redisCli := redis.NewClient(redisOptions)
 	redisCli.FlushDB(context.Background())
 	size := 101 // use a prime number may found some hidden bugs ^_^
 	retryCount := 3
 	mu := sync.Mutex{}
 	deliveryCount := make(map[string]int)
-	cb := func(s string) bool {
+	queue, err := NewQueue("test", redisCli,
+		WithFetchInterval(time.Millisecond*50),
+		WithMaxConsumeDuration(0),
+		WithLogger(log.New(os.Stderr, "[DelayQueue]", log.LstdFlags)),
+		WithConcurrent(4),
+		WithScriptPreload(false),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	queue.RegisterCallback(func(s string) bool {
 		mu.Lock()
 		deliveryCount[s]++
 		mu.Unlock()
 		return true
-	}
-	queue := NewQueue("test", redisCli, cb).
-		WithFetchInterval(time.Millisecond * 50).
-		WithMaxConsumeDuration(0).
-		WithLogger(log.New(os.Stderr, "[DelayQueue]", log.LstdFlags)).
-		WithConcurrent(4).
-		WithScriptPreload(false)
+	})
 
 	for i := 0; i < size; i++ {
-		err := queue.SendDelayMsg(strconv.Itoa(i), 0, WithRetryCount(retryCount), WithMsgTTL(time.Hour))
+		err := queue.SendDelayMsg(strconv.Itoa(i), 0, WithRetryCount(uint(retryCount)), WithMsgTTL(time.Hour))
 		if err != nil {
 			t.Error(err)
 		}
@@ -157,20 +174,21 @@ func TestDelayQueue_ConcurrentConsume(t *testing.T) {
 
 func TestDelayQueue_StopConsume(t *testing.T) {
 	size := 10
-	redisCli := redis.NewClient(&redis.Options{
-		Addr: "127.0.0.1:6379",
-	})
+	redisCli := redis.NewClient(redisOptions)
 	redisCli.FlushDB(context.Background())
-	var queue *DelayQueue
 	var received int
-	queue = NewQueue("test", redisCli, func(s string) bool {
+	queue, err := NewQueue("test", redisCli, WithDefaultRetryCount(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	queue.RegisterCallback(func(s string) bool {
 		received++
 		if received == size {
 			queue.StopConsume()
 			t.Log("send stop signal")
 		}
 		return true
-	}).WithDefaultRetryCount(1)
+	})
 	for i := 0; i < size; i++ {
 		err := queue.SendDelayMsg(strconv.Itoa(i), 0)
 		if err != nil {
@@ -183,13 +201,14 @@ func TestDelayQueue_StopConsume(t *testing.T) {
 
 func TestDelayQueue_AsyncConsume(t *testing.T) {
 	size := 10
-	redisCli := redis.NewClient(&redis.Options{
-		Addr: "127.0.0.1:6379",
-	})
+	redisCli := redis.NewClient(redisOptions)
 	redisCli.FlushDB(context.Background())
-	var queue *DelayQueue
 	var received int
-	queue = NewQueue("exampleAsync", redisCli, func(payload string) bool {
+	queue, err := NewQueue("exampleAsync", redisCli, WithDefaultRetryCount(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	queue.RegisterCallback(func(payload string) bool {
 		println(payload)
 		received++
 		if received == size {
@@ -197,8 +216,7 @@ func TestDelayQueue_AsyncConsume(t *testing.T) {
 			t.Log("send stop signal")
 		}
 		return true
-	}).WithDefaultRetryCount(1)
-
+	})
 	// send schedule message
 	go func() {
 		for {
@@ -215,29 +233,31 @@ func TestDelayQueue_AsyncConsume(t *testing.T) {
 }
 
 func TestDelayQueue_Massive_Backlog(t *testing.T) {
-	redisCli := redis.NewClient(&redis.Options{
-		Addr: "127.0.0.1:6379",
-	})
+	redisCli := redis.NewClient(redisOptions)
 	redisCli.FlushDB(context.Background())
 	size := 20000
 	retryCount := 3
 	cb := func(s string) bool {
 		return false
 	}
-	q := NewQueue("test", redisCli, cb).
-		WithFetchInterval(time.Millisecond * 50).
-		WithMaxConsumeDuration(0).
-		WithLogger(log.New(os.Stderr, "[DelayQueue]", log.LstdFlags)).
-		WithFetchLimit(0)
+	q, err := NewQueue("test", redisCli,
+		WithFetchInterval(time.Millisecond*50),
+		WithMaxConsumeDuration(0),
+		WithLogger(log.New(os.Stderr, "[DelayQueue]", log.LstdFlags)),
+		WithFetchLimit(0),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	q.RegisterCallback(cb)
 
 	for i := 0; i < size; i++ {
-		err := q.SendDelayMsg(strconv.Itoa(i), 0, WithRetryCount(retryCount))
+		err := q.SendDelayMsg(strconv.Itoa(i), 0, WithRetryCount(uint(retryCount)))
 		if err != nil {
 			t.Error(err)
 		}
 	}
-	err := q.pending2Ready()
-	if err != nil {
+	if err = q.pending2Ready(); err != nil {
 		t.Error(err)
 		return
 	}
@@ -284,20 +304,23 @@ func TestDelayQueue_Massive_Backlog(t *testing.T) {
 
 // consume should stopped after actual fetch count hits fetch limit
 func TestDelayQueue_FetchLimit(t *testing.T) {
-	redisCli := redis.NewClient(&redis.Options{
-		Addr: "127.0.0.1:6379",
-	})
+	redisCli := redis.NewClient(redisOptions)
 	redisCli.FlushDB(context.Background())
 	fetchLimit := 10
 	cb := func(s string) bool {
 		return true
 	}
-	queue := NewQueue("test", redisCli, UseHashTagKey()).
-		WithCallback(cb).
-		WithFetchInterval(time.Millisecond * 50).
-		WithMaxConsumeDuration(0).
-		WithLogger(log.New(os.Stderr, "[DelayQueue]", log.LstdFlags)).
-		WithFetchLimit(uint(fetchLimit))
+	queue, err := NewQueue("test", redisCli,
+		WithHashTagKey(),
+		WithFetchInterval(time.Millisecond*50),
+		WithMaxConsumeDuration(0),
+		WithLogger(log.New(os.Stderr, "[DelayQueue]", log.LstdFlags)),
+		WithFetchLimit(uint(fetchLimit)),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	queue.RegisterCallback(cb)
 
 	for i := 0; i < fetchLimit; i++ {
 		err := queue.SendDelayMsg(strconv.Itoa(i), 0, WithMsgTTL(time.Hour))
@@ -345,23 +368,25 @@ func TestDelayQueue_FetchLimit(t *testing.T) {
 }
 
 func TestDelayQueue_NackRedeliveryDelay(t *testing.T) {
-	redisCli := redis.NewClient(&redis.Options{
-		Addr: "127.0.0.1:6379",
-	})
+	redisCli := redis.NewClient(redisOptions)
 	redisCli.FlushDB(context.Background())
 	cb := func(s string) bool {
 		return false
 	}
 	redeliveryDelay := time.Second
-	queue := NewQueue("test", redisCli, UseHashTagKey()).
-		WithCallback(cb).
-		WithFetchInterval(time.Millisecond * 50).
-		WithLogger(log.New(os.Stderr, "[DelayQueue]", log.LstdFlags)).
-		WithDefaultRetryCount(3).
-		WithNackRedeliveryDelay(redeliveryDelay)
-
-	err := queue.SendScheduleMsg("foobar", time.Now().Add(-time.Minute))
+	queue, err := NewQueue("test", redisCli,
+		WithHashTagKey(),
+		WithFetchInterval(time.Millisecond*50),
+		WithLogger(log.New(os.Stderr, "[DelayQueue]", log.LstdFlags)),
+		WithDefaultRetryCount(3),
+		WithNackRedeliveryDelay(redeliveryDelay),
+	)
 	if err != nil {
+		t.Fatal(err)
+	}
+	queue.RegisterCallback(cb)
+
+	if err = queue.SendScheduleMsg("foobar", time.Now().Add(-time.Minute)); err != nil {
 		t.Error(err)
 	}
 	// first consume, callback will failed
@@ -400,16 +425,19 @@ func TestDelayQueue_NackRedeliveryDelay(t *testing.T) {
 }
 
 func TestDelayQueue_TryIntercept(t *testing.T) {
-	redisCli := redis.NewClient(&redis.Options{
-		Addr: "127.0.0.1:6379",
-	})
+	redisCli := redis.NewClient(redisOptions)
 	redisCli.FlushDB(context.Background())
 	cb := func(s string) bool {
 		return false
 	}
-	queue := NewQueue("test", redisCli, cb).
-		WithDefaultRetryCount(3).
-		WithNackRedeliveryDelay(time.Minute)
+	queue, err := NewQueue("test", redisCli,
+		WithDefaultRetryCount(3),
+		WithNackRedeliveryDelay(time.Minute),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	queue.RegisterCallback(cb)
 
 	// intercept pending message
 	msg, err := queue.SendDelayMsgV2("foobar", time.Minute)
@@ -481,14 +509,15 @@ func TestDelayQueue_TryIntercept(t *testing.T) {
 }
 
 func TestUseCustomPrefix(t *testing.T) {
-	redisCli := redis.NewClient(&redis.Options{
-		Addr: "127.0.0.1:6379",
-	})
-	cb := func(s string) bool {
-		return false
-	}
+	redisCli := redis.NewClient(redisOptions)
 	prefix := "MYQUEUE"
-	dp := NewQueue("test", redisCli, cb, UseCustomPrefix(prefix))
+	dp, err := NewQueue("test", redisCli, WithCustomPrefix(prefix))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(dp.msgKeyPrefix, prefix) {
+		t.Error("wrong prefix")
+	}
 	if !strings.HasPrefix(dp.pendingKey, prefix) {
 		t.Error("wrong prefix")
 	}

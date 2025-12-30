@@ -13,14 +13,16 @@ type Publisher struct {
 }
 
 // NewPublisher0 creates a new Publisher by a RedisCli instance
-func NewPublisher0(name string, cli RedisCli, opts ...interface{}) *Publisher {
-	return &Publisher{
-		inner: NewQueue0(name, cli, opts...),
+func NewPublisher0(name string, cli RedisCli, opts ...QueueOption) (*Publisher, error) {
+	queue, err := NewQueue0(name, cli, opts...)
+	if err != nil {
+		return nil, err
 	}
+	return &Publisher{inner: queue}, nil
 }
 
 // NewPublisher creates a new Publisher by a *redis.Client
-func NewPublisher(name string, cli *redis.Client, opts ...interface{}) *Publisher {
+func NewPublisher(name string, cli *redis.Client, opts ...QueueOption) (*Publisher, error) {
 	rc := &redisV9Wrapper{
 		inner: cli,
 	}
@@ -34,11 +36,11 @@ func (p *Publisher) WithLogger(logger *log.Logger) *Publisher {
 }
 
 // SendScheduleMsg submits a message delivered at given time
-func (p *Publisher) SendScheduleMsg(payload string, t time.Time, opts ...interface{}) error {
+func (p *Publisher) SendScheduleMsg(payload string, t time.Time, opts ...PushOption) error {
 	return p.inner.SendScheduleMsg(payload, t, opts...)
 }
 
 // SendDelayMsg submits a message delivered after given duration
-func (p *Publisher) SendDelayMsg(payload string, duration time.Duration, opts ...interface{}) error {
+func (p *Publisher) SendDelayMsg(payload string, duration time.Duration, opts ...PushOption) error {
 	return p.inner.SendDelayMsg(payload, duration, opts...)
 }

@@ -12,14 +12,16 @@ type Monitor struct {
 }
 
 // NewMonitor0 creates a new Monitor by a RedisCli instance
-func NewMonitor0(name string, cli RedisCli, opts ...interface{}) *Monitor {
-	return &Monitor{
-		inner: NewQueue0(name, cli, opts...),
+func NewMonitor0(name string, cli RedisCli, opts ...QueueOption) (*Monitor, error) {
+	queue, err := NewQueue0(name, cli, opts...)
+	if err != nil {
+		return nil, err
 	}
+	return &Monitor{inner: queue}, nil
 }
 
 // NewMonitor creates a new Monitor by a *redis.Client
-func NewMonitor(name string, cli *redis.Client, opts ...interface{}) *Monitor {
+func NewMonitor(name string, cli *redis.Client, opts ...QueueOption) (*Monitor, error) {
 	rc := &redisV9Wrapper{
 		inner: cli,
 	}
@@ -27,10 +29,8 @@ func NewMonitor(name string, cli *redis.Client, opts ...interface{}) *Monitor {
 }
 
 // NewMonitor creates a new Monitor by a *redis.ClusterClient
-func NewMonitorOnCluster(name string, cli *redis.ClusterClient, opts ...interface{}) *Monitor {
-	rc := &redisClusterWrapper{
-		inner: cli,
-	}
+func NewMonitorOnCluster(name string, cli *redis.ClusterClient, opts ...QueueOption) (*Monitor, error) {
+	rc := &redisClusterWrapper{inner: cli}
 	return NewMonitor0(name, rc, opts...)
 }
 
@@ -76,4 +76,3 @@ func (m *Monitor) ListenEvent(listener EventListener) (func(), error) {
 	}()
 	return closer, nil
 }
-

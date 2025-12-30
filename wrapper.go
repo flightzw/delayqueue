@@ -2,20 +2,19 @@ package delayqueue
 
 import (
 	"context"
-	"github.com/redis/go-redis/v9"
 	"time"
+
+	"github.com/redis/go-redis/v9"
 )
 
-
 // NewQueue creates a new queue, use DelayQueue.StartConsume to consume or DelayQueue.SendScheduleMsg to publish message
-// 
-//  queue := delayqueue.NewQueue("example", redisCli, func(payload string) bool {
-//      // callback returns true to confirm successful consumption. 
-//      // If callback returns false or not return within maxConsumeDuration, DelayQueue will re-deliver this message
-//		return true
-//	})
-// 
-func NewQueue(name string, cli *redis.Client, opts ...interface{}) *DelayQueue {
+//
+//	 queue := delayqueue.NewQueue("example", redisCli, func(payload string) bool {
+//	     // callback returns true to confirm successful consumption.
+//	     // If callback returns false or not return within maxConsumeDuration, DelayQueue will re-deliver this message
+//			return true
+//		})
+func NewQueue(name string, cli *redis.Client, opts ...QueueOption) (*DelayQueue, error) {
 	rc := &redisV9Wrapper{
 		inner: cli,
 	}
@@ -56,6 +55,12 @@ func (r *redisV9Wrapper) LRem(key string, count int64, value string) (int64, err
 func (r *redisV9Wrapper) Get(key string) (string, error) {
 	ctx := context.Background()
 	ret, err := r.inner.Get(ctx, key).Result()
+	return ret, wrapErr(err)
+}
+
+func (r *redisV9Wrapper) Exists(key string) (int64, error) {
+	ctx := context.Background()
+	ret, err := r.inner.Exists(ctx, key).Result()
 	return ret, wrapErr(err)
 }
 
@@ -150,7 +155,6 @@ func (r *redisV9Wrapper) Subscribe(channel string) (<-chan string, func(), error
 			resultChan <- msg.Payload
 		}
 	}()
-	
 	return resultChan, close, nil
 }
 
@@ -184,6 +188,12 @@ func (r *redisClusterWrapper) Set(key string, value string, expiration time.Dura
 func (r *redisClusterWrapper) Get(key string) (string, error) {
 	ctx := context.Background()
 	ret, err := r.inner.Get(ctx, key).Result()
+	return ret, wrapErr(err)
+}
+
+func (r *redisClusterWrapper) Exists(key string) (int64, error) {
+	ctx := context.Background()
+	ret, err := r.inner.Exists(ctx, key).Result()
 	return ret, wrapErr(err)
 }
 
@@ -287,7 +297,7 @@ func (r *redisClusterWrapper) Subscribe(channel string) (<-chan string, func(), 
 			resultChan <- msg.Payload
 		}
 	}()
-	
+
 	return resultChan, close, nil
 }
 
@@ -303,10 +313,10 @@ func (r *redisClusterWrapper) ScriptLoad(script string) (string, error) {
 	return sha1, wrapErr(err)
 }
 
-func NewQueueOnCluster(name string, cli *redis.ClusterClient,  opts ...interface{}) *DelayQueue {
+func NewQueueOnCluster(name string, cli *redis.ClusterClient, opts ...QueueOption) (*DelayQueue, error) {
 	rc := &redisClusterWrapper{
 		inner: cli,
 	}
-	opts = append(opts, UseHashTagKey())
+	opts = append(opts, WithHashTagKey())
 	return NewQueue0(name, rc, opts...)
 }

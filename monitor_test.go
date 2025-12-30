@@ -20,8 +20,16 @@ func TestMonitor_GetStatus(t *testing.T) {
 		return true
 	}
 	logger := log.New(os.Stderr, "[DelayQueue]", log.LstdFlags)
-	queue := NewQueue("test", redisCli, cb)
-	monitor := NewMonitor("test", redisCli).WithLogger(logger)
+	queue, err := NewQueue("test", redisCli)
+	if err != nil {
+		t.Fatal(err)
+	}
+	queue.RegisterCallback(cb)
+
+	monitor, err := NewMonitor("test", redisCli, WithLogger(logger))
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	for i := 0; i < size; i++ {
 		err := queue.SendDelayMsg(strconv.Itoa(i), 0)
@@ -86,8 +94,16 @@ func TestMonitor_Cluster_GetStatus(t *testing.T) {
 		return true
 	}
 	logger := log.New(os.Stderr, "[DelayQueue]", log.LstdFlags)
-	queue := NewQueueOnCluster("test", redisCli, cb)
-	monitor := NewMonitorOnCluster("test", redisCli).WithLogger(logger)
+	queue, err := NewQueueOnCluster("test", redisCli)
+	if err != nil {
+		t.Fatal(err)
+	}
+	queue.RegisterCallback(cb)
+
+	monitor, err := NewMonitorOnCluster("test", redisCli, WithLogger(logger))
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	for i := 0; i < size; i++ {
 		err := queue.SendDelayMsg(strconv.Itoa(i), 0)
@@ -97,8 +113,7 @@ func TestMonitor_Cluster_GetStatus(t *testing.T) {
 	}
 
 	// test pengding count
-	_, err := monitor.GetPendingCount()
-	if err != nil {
+	if _, err = monitor.GetPendingCount(); err != nil {
 		t.Error(err)
 		return
 	}
@@ -167,12 +182,21 @@ func TestMonitor_listener1(t *testing.T) {
 	})
 	redisCli.FlushDB(context.Background())
 	size := 1000
-	cb := func(s string) bool {
-		return true
+
+	queue, err := NewQueue("test", redisCli)
+	if err != nil {
+		t.Fatal(err)
 	}
-	queue := NewQueue("test", redisCli, cb)
+	queue.RegisterCallback(func(s string) bool {
+		return true
+	})
+
 	queue.EnableReport()
-	monitor := NewMonitor("test", redisCli)
+	monitor, err := NewMonitor("test", redisCli)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	profile := &MyProfiler{}
 	monitor.ListenEvent(profile)
 
@@ -216,9 +240,18 @@ func TestMonitor_Cluster_listener1(t *testing.T) {
 	cb := func(s string) bool {
 		return true
 	}
-	queue := NewQueueOnCluster("test", redisCli, cb)
+	queue, err := NewQueueOnCluster("test", redisCli)
+	if err != nil {
+		t.Fatal(err)
+	}
+	queue.RegisterCallback(cb)
+
 	queue.EnableReport()
-	monitor := NewMonitorOnCluster("test", redisCli)
+	monitor, err := NewMonitorOnCluster("test", redisCli)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	profile := &MyProfiler{}
 	monitor.ListenEvent(profile)
 
@@ -258,9 +291,18 @@ func TestMonitor_listener2(t *testing.T) {
 	cb := func(s string) bool {
 		return false
 	}
-	queue := NewQueue("test", redisCli, cb).WithDefaultRetryCount(1)
+	queue, err := NewQueue("test", redisCli, WithDefaultRetryCount(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	queue.RegisterCallback(cb)
+
 	queue.EnableReport()
-	monitor := NewMonitor("test", redisCli)
+	monitor, err := NewMonitor("test", redisCli)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	profile := &MyProfiler{}
 	monitor.ListenEvent(profile)
 

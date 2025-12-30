@@ -25,11 +25,19 @@ func TestPublisher(t *testing.T) {
 		return i%2 == 0
 	}
 	logger := log.New(os.Stderr, "[DelayQueue]", log.LstdFlags)
-	queue := NewQueue("test", redisCli, cb).WithLogger(logger)
-	publisher := NewPublisher("test", redisCli).WithLogger(logger)
+	queue, err := NewQueue("test", redisCli, WithLogger(logger))
+	if err != nil {
+		t.Fatal(err)
+	}
+	queue.RegisterCallback(cb)
+
+	publisher, err := NewPublisher("test", redisCli, WithLogger(logger))
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	for i := 0; i < size; i++ {
-		err := publisher.SendDelayMsg(strconv.Itoa(i), 0, WithRetryCount(retryCount), WithMsgTTL(time.Hour))
+		err := publisher.SendDelayMsg(strconv.Itoa(i), 0, WithRetryCount(uint(retryCount)), WithMsgTTL(time.Hour))
 		if err != nil {
 			t.Error(err)
 		}
