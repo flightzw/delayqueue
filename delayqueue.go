@@ -187,43 +187,27 @@ func (q *DelayQueue) parsePushOptions(opts ...PushOption) *pushOptions {
 func (q *DelayQueue) SendScheduleMsgV2(payload string, t time.Time, opts ...PushOption) (*MessageInfo, error) {
 	var (
 		params = q.parsePushOptions(opts...) // parse options
+		msgID  = uuid.Must(uuid.NewRandom()).String()
 		now    = time.Now()
 	)
-	// generate id
-	if params.msgID == "" {
-		params.msgID = uuid.Must(uuid.NewRandom()).String()
-	}
-	msgKey := q.genMsgKey(params.msgID)
-	if params.allowCover {
-		state, err := q.redisCli.Exists(msgKey)
-		if err != nil {
-			return nil, fmt.Errorf("check msg id failed: %v", err)
-		}
-		if state == 1 {
-			if res, _ := q.TryIntercept(&MessageInfo{id: params.msgID}); !res.Intercepted {
-				params.msgID = params.msgID + ""
-			}
-		}
-
-	}
 	// store msg
 	msgTTL := t.Sub(now) + q.msgTTL // delivery + q.msgTTL
-	err := q.redisCli.Set(msgKey, payload, msgTTL)
+	err := q.redisCli.Set(q.genMsgKey(msgID), payload, msgTTL)
 	if err != nil {
 		return nil, fmt.Errorf("store msg failed: %v", err)
 	}
 	// store retry count
-	err = q.redisCli.HSet(q.retryCountKey, params.msgID, strconv.Itoa(int(params.retryCount)))
+	err = q.redisCli.HSet(q.retryCountKey, msgID, strconv.Itoa(int(params.retryCount)))
 	if err != nil {
 		return nil, fmt.Errorf("store retry count failed: %v", err)
 	}
 	// put to pending
-	err = q.redisCli.ZAdd(q.pendingKey, map[string]float64{params.msgID: float64(t.Unix())})
+	err = q.redisCli.ZAdd(q.pendingKey, map[string]float64{msgID: float64(t.Unix())})
 	if err != nil {
 		return nil, fmt.Errorf("push to pending failed: %v", err)
 	}
 	q.reportEvent(NewMessageEvent, 1)
-	return &MessageInfo{id: params.msgID}, nil
+	return &MessageInfo{id: msgID}, nil
 }
 
 // SendDelayMsg submits a message delivered after given duration

@@ -84,20 +84,11 @@ func WithNackRedeliveryDelay(d time.Duration) QueueOption {
 }
 
 type pushOptions struct {
-	msgID      string
-	allowCover bool
 	msgTTL     time.Duration
 	retryCount uint
 }
 
 type PushOption func(*pushOptions)
-
-func WithMsgID(id string, cover bool) PushOption {
-	return func(po *pushOptions) {
-		po.msgID = id
-		po.allowCover = cover
-	}
-}
 
 func WithMsgTTL(d time.Duration) PushOption {
 	return func(po *pushOptions) {
