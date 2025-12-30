@@ -7,7 +7,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/flightzw/delayqueue"
+	"github.com/flightzw/delayqueue/v2"
 )
 
 type Metrics struct {

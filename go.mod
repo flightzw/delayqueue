@@ -1,4 +1,4 @@
-module github.com/flightzw/delayqueue
+module github.com/flightzw/delayqueue/v2
 
 go 1.23
 

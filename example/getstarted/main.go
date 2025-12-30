@@ -4,8 +4,9 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/flightzw/delayqueue"
 	"github.com/redis/go-redis/v9"
+
+	"github.com/flightzw/delayqueue/v2"
 )
 
 func main() {
