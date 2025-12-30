@@ -12,7 +12,7 @@ func WithHashTagKey() QueueOption {
 
 func WithCustomPrefix(prefix string) QueueOption {
 	return func(dq *DelayQueue) {
-		dq.keyPrefix = prefix + ":" + dq.name
+		dq.keyPrefix = prefix
 	}
 }
 
